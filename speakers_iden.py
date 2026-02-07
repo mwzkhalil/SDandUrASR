@@ -1,7 +1,3 @@
-# ============================================================
-# PRODUCTION-READY HYBRID SPEAKER DIARIZATION + URDU ASR
-# Diarization via DiariZen (BUT-FIT); embeddings/ASR via pyannote/transformers
-# ============================================================
 import os
 import sys
 import pickle
@@ -29,11 +25,8 @@ warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-# ============================================================
-# GPU MEMORY SAFETY
-# ============================================================
+# GPU mem safety
 def emergency_gpu_cleanup():
-    """Aggressive GPU memory cleanup"""
     if torch.cuda.is_available():
         gc.collect()
         torch.cuda.empty_cache()
@@ -53,9 +46,7 @@ atexit.register(emergency_gpu_cleanup)
 signal.signal(signal.SIGINT, lambda s,f: (emergency_gpu_cleanup(), sys.exit(0)))
 signal.signal(signal.SIGTERM, lambda s,f: (emergency_gpu_cleanup(), sys.exit(0)))
 
-# ============================================================
-# CONFIGURATION
-# ============================================================
+# config
 VIDEO_FILE = "/mnt/4ED699D7D699C01F/goodmorningshowrecording/Muskurati Subha With Zeeshan Azhar Good Morning Pakistan Part-1 Metro1 News 2 Fe_20260206_164615.mp4"
 OUTPUT_TXT = "transcription_final1.txt"
 SPEAKER_DB = "speaker_embeddings1.pkl"
@@ -79,9 +70,7 @@ TEMP_CLEAN_WAV = "temp_clean.wav"
 TEMP_SEG_WAV = "temp_seg.wav"
 ASR_MODEL_ID = "sajadkawa/ns_finetune_urdu_asr_org"
 
-# ============================================================
 # UTILITY FUNCTIONS
-# ============================================================
 def normalize(x):
     n = np.linalg.norm(x)
     return x / n if n > 1e-9 else x
@@ -90,9 +79,7 @@ def seconds_to_hhmmss(sec):
     sec = int(sec)
     return f"{sec//3600:02d}:{(sec%3600)//60:02d}:{sec%60:02d}"
 
-# ============================================================
 # LOAD MODELS
-# ============================================================
 logger.info("Loading diarization model (DiariZen)...")
 diar_pipeline = DiariZenPipeline.from_pretrained(DIARIZATION_MODEL_ID)
 check_gpu_memory()
@@ -125,9 +112,7 @@ asr_pipe = pipeline(
     generate_kwargs={"language":"ur", "task":"transcribe"}
 )
 
-# ============================================================
 # SPEAKER DATABASE
-# ============================================================
 if os.path.exists(SPEAKER_DB):
     with open(SPEAKER_DB, "rb") as f:
         speaker_db = pickle.load(f)
@@ -139,9 +124,7 @@ else:
     speaker_db = {}
     logger.info("Creating new speaker database")
 
-# ============================================================
 # EMBEDDING EXTRACTION
-# ============================================================
 def extract_embedding(audio_path, segment, dur):
     try:
         if dur < ENERGY_WEIGHTED_THRESHOLD:
@@ -183,9 +166,7 @@ def find_best_match(emb, db, min_samples=3):
         if sim>best_sim: best_sim=sim; best_id=sid
     return (best_id,best_sim) if best_sim>=MATCH_THRESHOLD else (None,best_sim)
 
-# ============================================================
 # MULTI-PASS CLUSTERING
-# ============================================================
 def adaptive_clustering(embs, min_clusters=2, max_clusters=15):
     best_labels = None; best_score = -1; best_n = 0
     for thresh in [0.30,0.35,0.40,0.45]:
@@ -203,9 +184,7 @@ def adaptive_clustering(embs, min_clusters=2, max_clusters=15):
     logger.info("Selected %d clusters (silhouette=%.3f)", best_n, best_score)
     return best_labels
 
-# ============================================================
 # AUDIO EXTRACTION & CLEANUP
-# ============================================================
 logger.info("Preparing audio...")
 subprocess.run(["ffmpeg", "-y", "-i", VIDEO_FILE, "-vn", "-ac", "1", "-ar", "16000", TEMP_FULL_WAV], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 subprocess.run(["ffmpeg", "-y", "-i", TEMP_FULL_WAV, "-af", "highpass=f=100,lowpass=f=6000,afftdn=nf=-20,loudnorm,speechnorm", TEMP_CLEAN_WAV], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -213,9 +192,7 @@ audio = AudioSegment.from_wav(TEMP_CLEAN_WAV)
 total_dur = len(audio) / 1000
 logger.info("Audio duration: %s", seconds_to_hhmmss(total_dur))
 
-# ============================================================
 # CHUNKED SPEAKER DIARIZATION (DiariZen – itertracks API)
-# ============================================================
 full_ann = Annotation()
 offset = 0.0
 num_chunks = (len(audio) + CHUNK_LENGTH_SEC * 1000 - 1) // (CHUNK_LENGTH_SEC * 1000)
@@ -243,9 +220,7 @@ for i, ms in enumerate(range(0, len(audio), CHUNK_LENGTH_SEC * 1000)):
         os.remove(path)
     emergency_gpu_cleanup()
 
-# ============================================================
 # MERGE SPEAKER TURNS
-# ============================================================
 turns = [(t.start, t.end, lbl) for t, _, lbl in full_ann.itertracks(yield_label=True)]
 turns.sort(key=lambda x: x[0])
 
@@ -268,10 +243,7 @@ if cur_e - cur_s >= MIN_SEG_DUR:
 
 logger.info("Merged segments: %d", len(merged))
 
-# The rest of your code remains **exactly** the same from here
-# ============================================================
 # EXTRACT EMBEDDINGS + ADAPTIVE CLUSTERING
-# ============================================================
 segment_data=[]
 for i,(s,e,lbl) in enumerate(merged):
     dur=e-s
@@ -309,9 +281,7 @@ for cid in set(labels):
 
 logger.info("Identified %d unique speakers", len(set(cluster_to_speaker.values())))
 
-# ============================================================
 # TRANSCRIPTION
-# ============================================================
 lines=[]
 for idx,(i,s,e,dur,emb,lbl) in enumerate(segment_data):
     if idx % 10 == 0: emergency_gpu_cleanup()
@@ -324,9 +294,7 @@ for idx,(i,s,e,dur,emb,lbl) in enumerate(segment_data):
     spk=cluster_to_speaker.get(idx_to_cluster.get(i),"UNK")
     lines.append((s,e,spk,text))
 
-# ============================================================
 # SAVE RESULTS
-# ============================================================
 with open(SPEAKER_DB, "wb") as f:
     pickle.dump(speaker_db, f)
 with open(OUTPUT_TXT, "w", encoding="utf-8") as f:
@@ -338,9 +306,7 @@ with open(OUTPUT_TXT, "w", encoding="utf-8") as f:
     for s,e,spk,text in lines:
         f.write(f"[{seconds_to_hhmmss(s)} → {seconds_to_hhmmss(e)}] {spk}: {text}\n")
 
-# ============================================================
 # STATISTICS
-# ============================================================
 unique_speakers=set(x[2] for x in lines)
 logger.info("Speakers detected: %s", ", ".join(sorted(unique_speakers)))
 
@@ -357,9 +323,7 @@ for spk in sorted(speaker_time.keys()):
     avg_seg = dur / segs if segs > 0 else 0
     logger.info("  %s: %s (%.1f%%) - %d segments (avg %.1fs)", spk, seconds_to_hhmmss(dur), pct, segs, avg_seg)
 
-# ============================================================
 # CLEANUP
-# ============================================================
 for f in [TEMP_FULL_WAV,TEMP_CLEAN_WAV,TEMP_SEG_WAV]:
     if os.path.exists(f): os.remove(f)
 
