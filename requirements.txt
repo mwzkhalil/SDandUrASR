@@ -1,0 +1,18 @@
+# Hafeeza: Speaker Diarization + Urdu ASR
+# Python 3.9+
+#
+# Install PyTorch with CUDA 13 FIRST (not in this file):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+#
+# Then: pip install -r requirements.txt
+
+numpy>=1.24,<3
+scipy>=1.10
+scikit-learn>=1.2
+soundfile>=0.12
+pydub>=0.25
+pyannote.audio>=3.2
+pyannote.core
+transformers>=4.36
+# diarizen: install from GitHub if not on PyPI
+# pip install git+https://github.com/BUTSpeechFIT/DiariZen.git
